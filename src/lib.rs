@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 #[cfg(feature = "buddy-alloc")]
 mod alloc;
 
@@ -14,135 +15,111 @@ use position::Position;
 mod frame;
 use frame::Frame;
 
-mod drawable;
-
-mod ball;
-use ball::Ball;
-
 mod game_pad_tracker;
 use game_pad_tracker::GamePadTracker;
 
+mod level_object;
+use level_object::{GameState, GameMode};
+
+mod constants;
+
 #[no_mangle]
-unsafe fn setup() {
-
+unsafe fn start() {
+    *PALETTE = palettes::MOSSY;
+    *DRAW_COLORS = 0x23;
 }
 
-static mut FRAME: Frame = Frame::new(Position::new(-10., -10.));
-static mut BALL: Ball = Ball::new(ORIGIN, Vector::new(0.0, 0.0), RADIUS);
-static mut ACCELERATION: Vector = GRAVITY;
-static mut INPUTS: GamePadTracker = GamePadTracker::new();
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct BallisticParameters {
-    initial_position: Position,
-    release_velocity: Vector,
-    acceleration: Vector,
-    time_in_flight: f32,
+mod palettes {
+    const GRAY: u32 = 0xFFafb2a3;
+    const DARK_GREEN: u32 = 0xFF2a4f1c;
+    const ORANGE: u32 = 0xFFf49271;
+    const GREEN: u32 = 0xFF587d3f;
+    pub const MOSSY: [u32; 4] = [GREEN, DARK_GREEN, ORANGE, GRAY];
+    pub const ICY: [u32; 4] = [0x03045e, 0x0096c7, 0x90e0ef, GRAY];
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum BallStatus {
-    Reset(Position),
-    Held(Position),
-    Ballistic(BallisticParameters),
-}
+static mut GAME: GameState = GameState {
+    gpt: GamePadTracker::new(),
+    frame: Frame::new(Position::new(-80.0, -80.0)),
+    mode: GameMode::TitleScreen,
+};
 
-impl BallStatus {
-    pub fn apply_transition(&mut self, transition: BallTransition) {
-        match (&self, transition) {
-            (Self::Reset(_), BallTransition::Grabbed(pos)) => *self = Self::Held(pos),
-            (Self::Held(_), BallTransition::Released(params)) => *self = Self::Ballistic(params),
-            (Self::Ballistic(BallisticParameters { initial_position, .. }), BallTransition::Reset) => *self = Self::Reset(*initial_position),
-            _ => {}
-        }
-    }
-}
 
-#[derive(Copy, Clone, Debug)]
-pub enum BallTransition {
-    Grabbed(Position),
-    Released(BallisticParameters),
-    Reset,
-}
-
-const GRAVITY: Vector = Vector::new(0., -10.0);
-
-impl BallTransition {
-    pub fn from_inputs(status: BallStatus, gpt: GamePadTracker, frame: Frame) -> Option<Self> {
-        match status {
-            BallStatus::Reset(_) if gpt.newly_clicked(MOUSE_LEFT) => Some(Self::Grabbed(frame.from_px_to_units(gpt.mouse_x as _, gpt.mouse_y as _))),
-            BallStatus::Held(pos) if gpt.newly_released(MOUSE_LEFT) => Some(Self::Released(BallisticParameters {
-                initial_position: ORIGIN,
-                release_velocity: Vector::between(frame.from_px_to_units(gpt.mouse_x as _, gpt.mouse_y as _), pos),
-                acceleration: GRAVITY,
-                time_in_flight: 0.0
-            })),
-            BallStatus::Ballistic(params) if go_ballistic(
-                params.initial_position,
-                params.release_velocity,
-                params.acceleration,
-                params.time_in_flight,
-            ).0.y <= params.initial_position.y => Some(Self::Reset),
-            _ => None
-        }
-    }
-}
-
-static mut BALL_STATUS: BallStatus = BallStatus::Reset(ORIGIN);
-
-const ORIGIN: Position = Position::new(0.0, 0.0);
-const RADIUS: f32 = 5.0;
+// static mut OBJECTS: [LevelObject<Ball>; 3] = [
+//     LevelObject::new(Projectile {
+//             mass: RADIUS,
+//             position: Position::new(40.0, 20.0),
+//             velocity: Vector::new(0.0, 0.0),
+//             object: Ball::new(RADIUS)
+//         },
+//         ProjectileStatus::Ballistic(Vector::new(0., 0.)),
+//         ORIGIN,
+//         GRAVITY
+//     ),
+//     LevelObject::new(Projectile {
+//             mass: RADIUS,
+//             position: Position::new(60.0, 0.0),
+//             velocity: Vector::new(0.0, 0.0),
+//             object: Ball::new(RADIUS)
+//         },
+//         ProjectileStatus::Reset,
+//         ORIGIN,
+//         GRAVITY
+//     ),
+//     LevelObject::new(Projectile {
+//             mass: RADIUS,
+//             position: Position::new(40.0, 40.0),
+//             velocity: Vector::new(0.0, 0.0),
+//             object: Ball::new(RADIUS)
+//         },
+//         ProjectileStatus::Ballistic(Vector::new(0., 0.)),
+//         ORIGIN,
+//         GRAVITY
+//     )
+// ];
 
 #[no_mangle]
 unsafe fn update() {
-    INPUTS.update(*GAMEPAD1, *MOUSE_BUTTONS, *MOUSE_X, *MOUSE_Y);
+    GAME.update();
+    GAME.draw();
 
-    if let Some(transition) = BallTransition::from_inputs(BALL_STATUS, INPUTS, FRAME) {
-        BALL_STATUS.apply_transition(transition);
-    }
-
-    if let BallStatus::Ballistic(ref mut params) = BALL_STATUS {
-        let (position, velocity) = go_ballistic(
-            params.initial_position,
-            params.release_velocity,
-            params.acceleration,
-            params.time_in_flight
-        );
-        BALL = Ball::new(position, velocity, RADIUS);
-        params.time_in_flight += 1.0 / 60.0;
-    }
-
-    if let BallStatus::Reset(pos) = BALL_STATUS {
-        BALL = Ball::new(pos, Default::default(), RADIUS);
-    }
+    // for obj in OBJECTS.iter_mut() {
+    //     obj.update_projectile_from_inputs(INPUTS, FRAME);
+    //     obj.draw(FRAME);
+    // }
     
     // click and drag middle mouse button for this instead
-    if INPUTS.pressed(BUTTON_RIGHT) {
-        FRAME.mv(Vector::new(1.0, 0.0))
-    }
-    if INPUTS.pressed(BUTTON_LEFT) {
-        FRAME.mv(Vector::new(-1.0, 0.0))
-    }
-    if INPUTS.pressed(BUTTON_DOWN) {
-        FRAME.mv(Vector::new(0.0, -1.0))
-    }
-    if INPUTS.pressed(BUTTON_UP) {
-        FRAME.mv(Vector::new(0.0, 1.0))
-    }
+    // if INPUTS.pressed(BUTTON_RIGHT) {
+    //     FRAME.mv(Vector::new(1.0, 0.0))
+    // }
+    // if INPUTS.pressed(BUTTON_LEFT) {
+    //     FRAME.mv(Vector::new(-1.0, 0.0))
+    // }
+    // if INPUTS.pressed(BUTTON_DOWN) {
+    //     FRAME.mv(Vector::new(0.0, -1.0))
+    // }
+    // if INPUTS.pressed(BUTTON_UP) {
+    //     FRAME.mv(Vector::new(0.0, 1.0))
+    // }
 
     // button to lock/unlock screen from following ball
 
-    FRAME.draw(BALL);
+    // collision physics
+
+    // follow ball like mario's camera (after a certain line the frame moves)
+
+    // FRAME.draw(BALL.object, BALL.position);
+    // FRAME.draw(BALL_2.object, BALL_2.position);
 }
 
-fn go_ballistic(position: Position, velocity: Vector, acceleration: Vector, time_seconds: f32) -> (Position, Vector) {
-    let x = position.x + velocity.x * time_seconds + 0.5 * acceleration.x * time_seconds.powi(2);
-    let y = position.y + velocity.y * time_seconds + 0.5 * acceleration.y * time_seconds.powi(2);
+// fn go_ballistic(position: Position, velocity: Vector, acceleration: Vector, time_seconds: f32) -> (Position, Vector) {
+//     let x = position.x + velocity.x * time_seconds + 0.5 * acceleration.x * time_seconds.powi(2);
+//     let y = position.y + velocity.y * time_seconds + 0.5 * acceleration.y * time_seconds.powi(2);
 
-    let velocity = velocity + acceleration * time_seconds;
+//     let velocity = velocity + acceleration * time_seconds;
 
-    (Position::new(x, y), velocity)
-}
+//     (Position::new(x, y), velocity)
+// }
 
 // #[derive(Copy, Clone, Debug)]
 // enum BallState {
@@ -162,7 +139,7 @@ fn go_ballistic(position: Position, velocity: Vector, acceleration: Vector, time
 // }
 
 // #[derive(Copy, Clone, Debug)]
-// enum BallTransition {
+// enum ProjectileTransition {
 //     Grab,
 //     Release,
 //     Freed,
@@ -187,20 +164,7 @@ fn go_ballistic(position: Position, velocity: Vector, acceleration: Vector, time
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
-    #[test]
-    fn test_kinematics() {
-        let pos = Position::new(0.0, 0.0);
-        let vel = Vector::new(10., 10.);
-        let acc = Vector::new(0., -1.);
-
-        let (pos_final, vel_final) = go_ballistic(pos, vel, acc, 10.0);
-
-        assert_eq!(pos_final.x, 100.0);
-        assert_eq!(pos_final.y, 50.0);
-
-        assert_eq!(vel_final.x, 10.0);
-        assert_eq!(vel_final.y, 0.0);
-    }
+    
 }

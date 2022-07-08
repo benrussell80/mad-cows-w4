@@ -1,8 +1,9 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub, Neg};
 use crate::position::Position;
+use serde::{Serialize, Deserialize};
 
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Vector {
     pub x: f32,
     pub y: f32
@@ -23,6 +24,10 @@ impl Vector {
 
     pub fn dot(&self, other: Self) -> f32 {
         self.x * other.x + self.y * other.y
+    }
+
+    pub fn normalize(&self) -> Self {
+        *self / self.magnitude()
     }
 }
 
@@ -56,6 +61,16 @@ impl Mul<f32> for Vector {
     }
 }
 
+impl Mul<Vector> for f32 {
+    type Output = Vector;
+    fn mul(self, other: Vector) -> Self::Output {
+        Self::Output {
+            x: other.x * self,
+            y: other.y * self,
+        }
+    }
+}
+
 impl Mul for Vector {
     type Output = f32;
     fn mul(self, other: Self) -> Self::Output {
@@ -69,6 +84,16 @@ impl Div<f32> for Vector {
         Self {
             x: self.x / other,
             y: self.y / other,
+        }
+    }
+}
+
+impl Neg for Vector {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self {
+            x: -self.x,
+            y: -self.y,
         }
     }
 }

@@ -1,7 +1,8 @@
 use std::ops::Add;
+use serde::{Serialize, Deserialize};
 
 
-#[derive(Copy, Clone, Debug, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Position {
     pub x: f32,
     pub y: f32,
